@@ -1,145 +1,179 @@
-class LeaflowAutoCheckin:
-    """GitHub Actions 专用稳定版"""
+#!/usr/bin/env python3
+"""
+Leaflow 自动签到脚本 - 极简可用版
+变量名：LEAFLOW_ACCOUNTS
+变量值：邮箱1:密码1,邮箱2:密码2
+"""
 
+import os
+import time
+import logging
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+
+# 配置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+class LeaflowAutoCheckin:
     def __init__(self, email, password):
         self.email = email
         self.password = password
         self.driver = None
-        self.setup_driver()
-
-    def setup_driver(self):
-        chrome_options = Options()
-        if os.getenv("GITHUB_ACTIONS"):
-            chrome_options.add_argument("--headless=new")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option("useAutomationExtension", False)
-
-        self.driver = webdriver.Chrome(options=chrome_options)
-        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
-    def wait_page_ready(self, timeout=15):
-        """等待页面完全加载"""
-        try:
-            WebDriverWait(self.driver, timeout).until(
-                lambda d: d.execute_script("return document.readyState") == "complete"
-            )
-            return True
-        except:
-            return False
-
-    def close_popup(self):
-        try:
-            # 尝试点击页面空白处关闭弹窗
-            ActionChains(self.driver).move_by_offset(10, 10).click().perform()
-            time.sleep(1)
-        except:
-            pass
-
+        self._init_driver()
+    
+    def _init_driver(self):
+        """初始化浏览器驱动"""
+        options = Options()
+        
+        # GitHub Actions环境
+        if os.getenv('GITHUB_ACTIONS'):
+            options.add_argument('--headless')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--window-size=1920,1080')
+        
+        # 通用设置
+        options.add_argument('--disable-blink-features=AutomationControlled')
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option('useAutomationExtension', False)
+        
+        self.driver = webdriver.Chrome(options=options)
+        self.driver.implicitly_wait(10)
+    
     def login(self):
-        self.driver.get("https://leaflow.net/login")
-        if not self.wait_page_ready():
-            logger.warning("页面加载超时")
-        time.sleep(2)
-        self.close_popup()
-
-        # 邮箱输入框
-        email_selectors = [
-            "input[type='text']",
-            "input[type='email']",
-            "input[name='email']",
-            "input[placeholder*='邮箱']",
-            "input[placeholder*='email']"
-        ]
-        email_input = None
-        for sel in email_selectors:
-            email_input = WebDriverWait(self.driver, 5, 0.5).until(
-                lambda d: d.find_element(By.CSS_SELECTOR, sel)
-            )
-            if email_input:
-                break
-        if not email_input:
-            raise Exception(f"找不到邮箱输入框, URL={self.driver.current_url}")
-        email_input.clear()
-        email_input.send_keys(self.email)
-
-        # 密码输入
-        password_input = WebDriverWait(self.driver, 5, 0.5).until(
-            lambda d: d.find_element(By.CSS_SELECTOR, "input[type='password']")
-        )
-        password_input.clear()
-        password_input.send_keys(self.password)
-
-        # 登录按钮
-        login_btn_selectors = ["button[type='submit']", "//button[contains(text(),'登录')]"]
-        login_btn = None
-        for sel in login_btn_selectors:
-            try:
-                if sel.startswith("//"):
-                    login_btn = WebDriverWait(self.driver, 5, 0.5).until(
-                        lambda d: d.find_element(By.XPATH, sel)
-                    )
-                else:
-                    login_btn = WebDriverWait(self.driver, 5, 0.5).until(
-                        lambda d: d.find_element(By.CSS_SELECTOR, sel)
-                    )
-                if login_btn:
-                    break
-            except:
-                continue
-        if not login_btn:
-            raise Exception("找不到登录按钮")
-        login_btn.click()
-
-        WebDriverWait(self.driver, 15, 0.5).until(
-            lambda d: "dashboard" in d.current_url or "login" not in d.current_url
-        )
-        logger.info(f"{self.email} 登录成功, URL={self.driver.current_url}")
-
-    def checkin(self):
-        self.driver.get("https://checkin.leaflow.net")
-        for attempt in range(3):
+        """登录"""
+        logger.info(f"登录账号: {self.email}")
+        
+        try:
+            # 访问登录页
+            self.driver.get("https://leaflow.net/login")
+            time.sleep(3)
+            
+            # 输入邮箱
+            email_input = self.driver.find_element(By.XPATH, "//input[@type='email' or @type='text']")
+            email_input.send_keys(self.email)
+            time.sleep(1)
+            
+            # 输入密码
+            password_input = self.driver.find_element(By.XPATH, "//input[@type='password']")
+            password_input.send_keys(self.password)
+            time.sleep(1)
+            
+            # 点击登录
+            login_btn = self.driver.find_element(By.XPATH, "//button[contains(text(), '登录') or @type='submit']")
+            login_btn.click()
             time.sleep(5)
-            self.wait_page_ready()
-            checkin_btn_selectors = ["button.checkin-btn", "//button[contains(text(),'立即签到')]"]
-            for sel in checkin_btn_selectors:
+            
+            # 检查是否登录成功
+            if "dashboard" in self.driver.current_url or "login" not in self.driver.current_url:
+                logger.info("登录成功")
+                return True
+            else:
+                logger.error("登录失败")
+                return False
+                
+        except Exception as e:
+            logger.error(f"登录出错: {e}")
+            return False
+    
+    def checkin(self):
+        """签到"""
+        logger.info("开始签到")
+        
+        try:
+            # 方法1: 直接访问签到页
+            try:
+                self.driver.get("https://checkin.leaflow.net")
+                time.sleep(5)
+            except:
+                # 方法2: 从仪表板跳转
+                self.driver.get("https://leaflow.net/dashboard")
+                time.sleep(3)
+                self.driver.get("https://checkin.leaflow.net")
+                time.sleep(5)
+            
+            # 等待页面加载
+            time.sleep(3)
+            
+            # 查找签到按钮
+            checkin_buttons = [
+                "//button[contains(text(), '立即签到')]",
+                "//button[contains(text(), '签到')]",
+                "//button[@class='checkin-btn']",
+                "button.checkin-btn"
+            ]
+            
+            for btn_xpath in checkin_buttons:
                 try:
-                    if sel.startswith("//"):
-                        btn = self.driver.find_element(By.XPATH, sel)
+                    if "checkin-btn" in btn_xpath and not btn_xpath.startswith("//"):
+                        # CSS选择器
+                        btn = self.driver.find_element(By.CSS_SELECTOR, btn_xpath)
                     else:
-                        btn = self.driver.find_element(By.CSS_SELECTOR, sel)
+                        # XPath选择器
+                        btn = self.driver.find_element(By.XPATH, btn_xpath)
+                    
                     if btn.is_displayed():
-                        if "已签到" in btn.text:
+                        btn_text = btn.text
+                        
+                        if "已签到" in btn_text:
+                            logger.info("今日已签到")
                             return "今日已签到"
+                        
                         btn.click()
-                        time.sleep(2)
-                        return "签到完成"
+                        logger.info("点击签到按钮")
+                        time.sleep(3)
+                        
+                        # 获取签到结果
+                        return self._get_result()
+                        
+                except Exception as e:
+                    continue
+            
+            logger.error("未找到签到按钮")
+            return "签到失败：未找到按钮"
+            
+        except Exception as e:
+            logger.error(f"签到出错: {e}")
+            return f"签到失败：{str(e)}"
+    
+    def _get_result(self):
+        """获取签到结果"""
+        try:
+            # 等待结果出现
+            time.sleep(2)
+            
+            # 查找成功提示
+            success_elements = [
+                "//*[contains(text(), '成功')]",
+                "//*[contains(text(), '获得')]",
+                "//*[contains(text(), '恭喜')]",
+                ".success-message",
+                ".alert-success"
+            ]
+            
+            for element in success_elements:
+                try:
+                    if element.startswith("//"):
+                        elem = self.driver.find_element(By.XPATH, element)
+                    else:
+                        elem = self.driver.find_element(By.CSS_SELECTOR, element)
+                    
+                    if elem.is_displayed():
+                        text = elem.text[:50]  # 截取前50个字符
+                        return f"签到成功：{text}"
                 except:
                     continue
-            logger.warning(f"第{attempt+1}次尝试未找到签到按钮, 重试...")
-        raise Exception("签到页面加载失败，找不到签到按钮")
-
-    def get_balance(self):
-        self.driver.get("https://leaflow.net/dashboard")
-        self.wait_page_ready()
-        body = self.driver.find_element(By.TAG_NAME, "body").text
-        m = re.search(r"¥?\d+\.?\d*", body)
-        return m.group(0) if m else "未知"
-
-    def run(self):
-        try:
-            self.login()
-            result = self.checkin()
-            balance = self.get_balance()
-            logger.info(f"{self.email} 签到结果: {result}, 余额: {balance}")
-            return True, result, balance
+            
+            # 检查页面是否有成功关键词
+            page_text = self.driver.page_source
+            if "成功" in page_text or "获得" in page_text or "谢谢" in page_text:
+                return "签到成功"
+            
+            return "签到完成（结果未知）"
+            
         except Exception as e:
-            logger.error(f"{self.email} 自动签到失败: {e}")
-            return False, str(e), "未知"
-        finally:
-            if self.driver:
-                self.driver.quit()
+            return f"签到完成：{str(e)}
